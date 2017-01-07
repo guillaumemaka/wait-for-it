@@ -1,9 +1,9 @@
-#!/usr/bin/env bash
+#!/bin/sh
 #   Use this script to test if a given TCP host/port are available
 
-cmdname=$(basename $0)
+cmdname="$(basename $0)"
 
-echoerr() { if [[ $QUIET -ne 1 ]]; then echo "$@" 1>&2; fi }
+echoerr() { if [ "$QUIET" -ne 1 ]; then echo "$@" 1>&2; fi }
 
 usage()
 {
@@ -24,7 +24,7 @@ USAGE
 
 wait_for()
 {
-    if [[ $TIMEOUT -gt 0 ]]; then
+    if [ "$TIMEOUT" -gt 0 ]; then
         echoerr "$cmdname: waiting $TIMEOUT seconds for $HOST:$PORT"
     else
         echoerr "$cmdname: waiting for $HOST:$PORT without a timeout"
@@ -32,9 +32,14 @@ wait_for()
     start_ts=$(date +%s)
     while :
     do
-        (echo > /dev/tcp/$HOST/$PORT) >/dev/null 2>&1
+        if [ "$IS_BUSYBOX" -eq 1 ]; then
+            nc -z "$HOST" "$PORT" >/dev/null 2>&1
+        else
+            echo > /dev/tcp/"$HOST"/"$PORT" >/dev/null 2>&1
+        fi
+
         result=$?
-        if [[ $result -eq 0 ]]; then
+        if [ $result -eq 0 ]; then
             end_ts=$(date +%s)
             echoerr "$cmdname: $HOST:$PORT is available after $((end_ts - start_ts)) seconds"
             break
@@ -47,29 +52,28 @@ wait_for()
 wait_for_wrapper()
 {
     # In order to support SIGINT during timeout: http://unix.stackexchange.com/a/57692
-    if [[ $QUIET -eq 1 ]]; then
-        timeout $TIMEOUT $0 --quiet --child --host=$HOST --port=$PORT --timeout=$TIMEOUT &
+    if [ "$QUIET" -eq 1 ]; then
+        timeout "$TIMEOUT_FLAGS" "$TIMEOUT" "$0" --quiet --child --host="$HOST" --port="$PORT" --timeout="$TIMEOUT" &
     else
-        timeout $TIMEOUT $0 --child --host=$HOST --port=$PORT --timeout=$TIMEOUT &
+        timeout "$TIMEOUT_FLAGS" "$TIMEOUT" "$0" --child --host="$HOST" --port="$PORT" --timeout="$TIMEOUT" &
     fi
     PID=$!
-    trap "kill -INT -$PID" INT
+    trap 'kill -INT -$PID' INT
     wait $PID
     RESULT=$?
-    if [[ $RESULT -ne 0 ]]; then
+    if [ $RESULT -ne 0 ]; then
         echoerr "$cmdname: timeout occurred after waiting $TIMEOUT seconds for $HOST:$PORT"
     fi
     return $RESULT
 }
 
 # process arguments
-while [[ $# -gt 0 ]]
+while [ $# -gt 0 ]
 do
     case "$1" in
         *:* )
-        hostport=(${1//:/ })
-        HOST=${hostport[0]}
-        PORT=${hostport[1]}
+        HOST="$(echo "$1" | cut -d ":" -f 1)"
+        PORT="$(echo "$1" | cut -d ":" -f 2)"
         shift 1
         ;;
         --child)
@@ -86,7 +90,7 @@ do
         ;;
         -h)
         HOST="$2"
-        if [[ $HOST == "" ]]; then break; fi
+        if [ "$HOST" = "" ]; then break; fi
         shift 2
         ;;
         --host=*)
@@ -95,7 +99,7 @@ do
         ;;
         -p)
         PORT="$2"
-        if [[ $PORT == "" ]]; then break; fi
+        if [ "$PORT" = "" ]; then break; fi
         shift 2
         ;;
         --port=*)
@@ -104,7 +108,7 @@ do
         ;;
         -t)
         TIMEOUT="$2"
-        if [[ $TIMEOUT == "" ]]; then break; fi
+        if [ "$TIMEOUT" = "" ]; then break; fi
         shift 2
         ;;
         --timeout=*)
@@ -113,7 +117,7 @@ do
         ;;
         --)
         shift
-        CLI="$@"
+        CLI="$*"
         break
         ;;
         --help)
@@ -126,7 +130,7 @@ do
     esac
 done
 
-if [[ "$HOST" == "" || "$PORT" == "" ]]; then
+if [ "$HOST" = "" ] || [ "$PORT" = "" ]; then
     echoerr "Error: you need to provide a host and port to test."
     usage
 fi
@@ -136,12 +140,33 @@ STRICT=${STRICT:-0}
 CHILD=${CHILD:-0}
 QUIET=${QUIET:-0}
 
-if [[ $CHILD -gt 0 ]]; then
+# IS_ALPINE="(realpath $(which apk))"
+#
+# if echo $IS_ALPINE | grep -Eq 'apk'; then
+#     IS_ALPINE=1
+#     TIMEOUT_FLAGS="-t"
+# else
+#     IS_ALPINE=0
+#     TIMEOUT_FLAGS=""
+# fi
+
+IS_BUSYBOX="$(realpath "$(which timeout)")"
+
+if echo $IS_BUSYBOX | grep -Eq 'busybox'; then
+    IS_BUSYBOX=1
+    TIMEOUT_FLAGS="-t"
+else
+    IS_BUSYBOX=0
+    TIMEOUT_FLAGS=""
+fi
+
+
+if [ "$CHILD" -gt 0 ]; then
     wait_for
     RESULT=$?
-    exit $RESULT
+    exit "$RESULT"
 else
-    if [[ $TIMEOUT -gt 0 ]]; then
+    if [ "$TIMEOUT" -gt 0 ]; then
         wait_for_wrapper
         RESULT=$?
     else
@@ -150,12 +175,12 @@ else
     fi
 fi
 
-if [[ $CLI != "" ]]; then
-    if [[ $RESULT -ne 0 && $STRICT -eq 1 ]]; then
+if [ "$CLI" != "" ]; then
+    if [ "$RESULT" -ne 0 ] && [ $STRICT -eq 1 ]; then
         echoerr "$cmdname: strict mode, refusing to execute subprocess"
         exit $RESULT
     fi
-    exec $CLI
+    exec "$CLI"
 else
-    exit $RESULT
+    exit "$RESULT"
 fi
